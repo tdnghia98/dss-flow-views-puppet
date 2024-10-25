@@ -1,9 +1,13 @@
 import { launch, Locator, Page, Protocol, type Point } from "puppeteer";
 import * as fs from "fs";
+import { ConsoleManager } from "./utils/console-manager";
+
+const logger = new ConsoleManager();
 
 let isRunning = true;
 export function stop() {
     isRunning = false;
+    logger.log("Stopping automated browser execution...");
 }
 // 26 views
 const viewOrders = {
@@ -29,7 +33,7 @@ async function login(page: Page, url: string, project: string) {
         { timeout: 10000 } // Timeout after 10 seconds
     );
 
-    console.log("Redirected to:", page.url());
+    logger.log("Redirected to:", page.url());
 }
 
 async function pause(duration: number) {
@@ -119,7 +123,7 @@ function findViewPane(page: Page) {
 
 async function waitForSpinner(page: Page) {
     await page.waitForSelector("#qa_spinner.ng-hide", {
-        timeout: 100,
+        timeout: 0,
     });
     await pause(300);
 }
@@ -199,7 +203,7 @@ export async function execute(
         await login(page, url, project);
         while (isRunning && !isInterrupted) {
             try {
-                console.log(
+                logger.log(
                     `📊 [${launchLabel}] Iteration ${iteration} @ ${new Date().toISOString()}`
                 );
                 await capturePerformanceMetrics(launchLabel, prefix, page);
@@ -207,7 +211,7 @@ export async function execute(
                 await dragFlow(page, { x: 427, y: 211 }, 300, 300);
                 // Run the recorded steps from your exported Chrome Recorder script
                 const viewIndex = 1 + Math.round(Math.random() * maxViewIndex);
-                console.log(`Activating view @ index ${viewIndex}`);
+                logger.log(`Activating view @ index ${viewIndex}`);
                 await toggleView(page, viewIndex);
 
                 await dragFlow(page, { x: 457, y: 241 }, -300, -300);
@@ -218,10 +222,11 @@ export async function execute(
                 console.error("Error during test execution:", error);
                 isInterrupted = true;
                 await browser.disconnect();
-                console.log("Browser is left open, but puppeteer has been disconnected");
+                logger.log("Browser is left open, but puppeteer has been disconnected");
             }
         }
     } catch (error) {
         console.error("Error during test execution:", error);
     }
+    return browser;
 }
