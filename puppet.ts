@@ -1,6 +1,10 @@
 import { launch, Locator, Page, Protocol, type Point } from "puppeteer";
 import * as fs from "fs";
 
+let isRunning = true;
+export function stop() {
+    isRunning = false;
+}
 // 26 views
 const viewOrders = {
     zones: 1,
@@ -33,20 +37,25 @@ async function pause(duration: number) {
 }
 
 // Function to capture and log performance metrics
-const capturePerformanceMetrics = async (startTime: string, page: Page) => {
+const capturePerformanceMetrics = async (
+    instance: string,
+    startTime: string,
+    page: Page
+) => {
     // Use the Chrome DevTools Protocol to capture additional metrics like traces
     const client = await page.createCDPSession();
     await client.send("Performance.enable");
 
     const performanceMetrics = await client.send("Performance.getMetrics");
-    appendMetricsToArray(startTime, performanceMetrics);
+    appendMetricsToArray(startTime, instance, performanceMetrics);
 };
 
 function appendMetricsToArray(
     prefix: string,
+    instance: string,
     metrics: Protocol.Performance.GetMetricsResponse
 ) {
-    const filePath = `assets/${prefix}/${prefix}_performanceMetrics.json`;
+    const filePath = `assets/${instance}/${prefix}_performanceMetrics.json`;
 
     let data = [];
 
@@ -76,9 +85,6 @@ const timeout = 0;
 async function clickViewButton(page: Page) {
     await Locator.race([
         page.locator("views > button"),
-        // targetPage.locator(
-        // '::-p-xpath(//*[@id=\\"flow-widgets-container\\"]/ng2-flow-search-filters-views/search-filters-views/views/button)'
-        // ),
         page.locator(":scope >>> views > button"),
     ])
         .setTimeout(timeout)
@@ -113,7 +119,7 @@ function findViewPane(page: Page) {
 
 async function waitForSpinner(page: Page) {
     await page.waitForSelector("#qa_spinner.ng-hide", {
-        timeout: 0,
+        timeout: 100,
     });
     await pause(300);
 }
@@ -137,9 +143,6 @@ async function activateView(page: Page, index: number) {
         page.locator(
             `views > div > div > div > ul > li:nth-of-type(${index}) > button`
         ),
-        // page.locator(
-        //     `::-p-xpath(//*[@id=\\"flow-widgets-container\\"]/ng2-flow-search-filters-views/search-filters-views/views/div/div/div/ul/li[${index}]/button)`
-        // ),
         page.locator(
             `:scope >>> views > div > div > div > ul > li:nth-of-type(${index}) > button`
         ),
@@ -168,6 +171,7 @@ export async function execute(
     project: string,
     maxViewIndex: number
 ) {
+    let isInterrupted = false;
     const startTime = new Date();
     // Launch browser with performance flags and open Chrome
     const browser = await launch({
@@ -178,12 +182,12 @@ export async function execute(
             "--enable-features=NetworkService,NetworkServiceInProcess", // Enable Chrome features
             "--enable-precise-memory-info", // Memory information for performance
             "--disable-background-networking", // Disable networking in background tabs
-            '--disable-infobars',
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-gpu=False',
-            '--enable-webgl',
-            '--window-size=1600,900',
+            "--disable-infobars",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-gpu=False",
+            "--enable-webgl",
+            "--window-size=1600,900",
         ],
     });
 
@@ -193,26 +197,31 @@ export async function execute(
         // Start analyzing performance
         let iteration = 0;
         await login(page, url, project);
-        while (true) {
-            console.log(
-                `[${launchLabel}] Iteration ${iteration} @ ${new Date().toISOString()}`
-            );
-            await capturePerformanceMetrics(prefix, page);
+        while (isRunning && !isInterrupted) {
+            try {
+                console.log(
+                    `📊 [${launchLabel}] Iteration ${iteration} @ ${new Date().toISOString()}`
+                );
+                await capturePerformanceMetrics(launchLabel, prefix, page);
 
-            await dragFlow(page, { x: 427, y: 211 }, 300, 300);
-            // Run the recorded steps from your exported Chrome Recorder script
-            const viewIndex = 1 + Math.round(Math.random() * maxViewIndex);
-            console.log(`Activating view @ index ${viewIndex}`);
-            await toggleView(page, viewIndex);
+                await dragFlow(page, { x: 427, y: 211 }, 300, 300);
+                // Run the recorded steps from your exported Chrome Recorder script
+                const viewIndex = 1 + Math.round(Math.random() * maxViewIndex);
+                console.log(`Activating view @ index ${viewIndex}`);
+                await toggleView(page, viewIndex);
 
-            await dragFlow(page, { x: 457, y: 241 }, -300, -300);
-            // Capture performance metrics again after the interaction
-            await capturePerformanceMetrics(prefix, page);
-            iteration++;
+                await dragFlow(page, { x: 457, y: 241 }, -300, -300);
+                // Capture performance metrics again after the interaction
+                await capturePerformanceMetrics(launchLabel, prefix, page);
+                iteration++;
+            } catch (error) {
+                console.error("Error during test execution:", error);
+                isInterrupted = true;
+                await browser.disconnect();
+                console.log("Browser is left open, but puppeteer has been disconnected");
+            }
         }
     } catch (error) {
         console.error("Error during test execution:", error);
     }
-
-    await browser.close();
 }
